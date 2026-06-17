@@ -23,8 +23,26 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   }
 }
 
-export function fireBrowserNotification(title: string, body: string, tag?: string): void {
+export async function fireBrowserNotification(title: string, body: string, tag?: string): Promise<void> {
   if (!notificationsSupported() || Notification.permission !== "granted") return;
+
+  // Android (and any installed PWA) forbids the `new Notification()` constructor
+  // and throws "Illegal constructor" — notifications MUST be shown through the
+  // service worker. So prefer the SW registration; only fall back to the
+  // constructor on desktop browsers where the SW isn't controlling the page.
+  if ("serviceWorker" in navigator) {
+    try {
+      const reg =
+        (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.ready);
+      if (reg) {
+        await reg.showNotification(title, { body, tag, icon: ICON });
+        return;
+      }
+    } catch {
+      // fall through to the constructor
+    }
+  }
+
   try {
     const n = new Notification(title, { body, tag, icon: ICON });
     n.onclick = () => {

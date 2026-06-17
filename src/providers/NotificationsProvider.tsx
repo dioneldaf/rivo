@@ -8,7 +8,7 @@ import {
   requestNotificationPermission,
 } from "../lib/browserNotify";
 import { notificationKey, notificationText, notificationTitle } from "../lib/notifications";
-import { subscribeToPush } from "../lib/push";
+import { pushSupported, subscribeToPush } from "../lib/push";
 import type { Notification } from "../lib/types";
 import { useAuth } from "../hooks/useAuth";
 
@@ -22,7 +22,10 @@ type NotificationsContextValue = {
   loading: boolean;
   refresh: () => Promise<void>;
   permission: NotificationPermission;
-  supported: boolean;
+  /** True if this device can do Web Push at all (SW + PushManager + Notification). */
+  pushSupported: boolean;
+  /** True once a push subscription is registered for this device. */
+  pushActive: boolean;
   enableBrowserNotifications: () => Promise<void>;
 };
 
@@ -32,7 +35,8 @@ const NotificationsContext = createContext<NotificationsContextValue>({
   loading: false,
   refresh: async () => {},
   permission: "default",
-  supported: false,
+  pushSupported: false,
+  pushActive: false,
   enableBrowserNotifications: async () => {},
 });
 
@@ -45,6 +49,7 @@ export default function NotificationsProvider({ children }: { children: ReactNod
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>(currentPermission());
+  const [pushActive, setPushActive] = useState(false);
 
   // Keys we've already accounted for. `null` until the first load so we don't
   // notify for the whole pre-existing backlog right after sign-in.
@@ -112,7 +117,9 @@ export default function NotificationsProvider({ children }: { children: ReactNod
     setPermission(p);
     if (p === "granted") {
       // Register for real Web Push (works with the app closed) where available.
-      pushActiveRef.current = await subscribeToPush();
+      const ok = await subscribeToPush();
+      pushActiveRef.current = ok;
+      setPushActive(ok);
       fireBrowserNotification("Notificaciones activadas", "Te avisaremos aquí cuando haya novedades.", "rivo-welcome");
     }
   }, []);
@@ -123,6 +130,7 @@ export default function NotificationsProvider({ children }: { children: ReactNod
     if (!user || permission !== "granted") return;
     subscribeToPush().then((ok) => {
       pushActiveRef.current = ok;
+      setPushActive(ok);
     });
   }, [user, permission]);
 
@@ -134,7 +142,8 @@ export default function NotificationsProvider({ children }: { children: ReactNod
         loading,
         refresh,
         permission,
-        supported: notificationsSupported(),
+        pushSupported: pushSupported(),
+        pushActive,
         enableBrowserNotifications,
       }}
     >

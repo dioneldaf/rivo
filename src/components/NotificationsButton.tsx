@@ -4,8 +4,23 @@ import IconButton from "./ui/IconButton";
 import NotificationList from "./NotificationList";
 import { useNotifications } from "../providers/NotificationsProvider";
 
+// Explain WHY notifications can't be enabled on this device, so the user isn't
+// left staring at a missing button. iOS only exposes the Push API to an
+// installed PWA (iOS 16.4+); other browsers need a SW + PushManager.
+function notifHelp(): string {
+  const ua = navigator.userAgent;
+  const isIOS = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && "ontouchend" in document);
+  const standalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as unknown as { standalone?: boolean }).standalone === true;
+  if (isIOS && !standalone) {
+    return "Para recibir notificaciones en iPhone instala Rivo: pulsa Compartir → “Añadir a pantalla de inicio” y ábrela desde el icono.";
+  }
+  return "Tu navegador no admite notificaciones aquí. Abre Rivo en Chrome o Edge (o instala la app) para activarlas.";
+}
+
 export default function NotificationsButton() {
-  const { items, count, permission, supported, enableBrowserNotifications } = useNotifications();
+  const { items, count, permission, pushSupported, pushActive, enableBrowserNotifications } = useNotifications();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -37,19 +52,22 @@ export default function NotificationsButton() {
               <X className="h-4 w-4" />
             </button>
           </div>
-          {supported && permission === "default" ? (
+          {!pushSupported ? (
+            <p className="mx-1 mb-1 rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+              {notifHelp()}
+            </p>
+          ) : permission === "denied" ? (
+            <p className="mx-1 mb-1 rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-400 dark:bg-slate-800/60">
+              Las notificaciones están bloqueadas. Habilítalas en los ajustes del sitio en tu navegador.
+            </p>
+          ) : !pushActive ? (
             <button
               onClick={enableBrowserNotifications}
               className="mx-1 mb-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-2xl bg-brand-50 px-3 py-2.5 text-left text-sm text-brand-700 transition hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20"
             >
               <BellRing className="h-4 w-4 shrink-0" />
-              <span>Activar notificaciones del navegador</span>
+              <span>{permission === "granted" ? "Reintentar activar notificaciones" : "Activar notificaciones"}</span>
             </button>
-          ) : null}
-          {supported && permission === "denied" ? (
-            <p className="mx-1 mb-1 rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-400 dark:bg-slate-800/60">
-              Las notificaciones están bloqueadas. Habilítalas en los ajustes del sitio en tu navegador.
-            </p>
           ) : null}
           <div className="max-h-[60vh] overflow-y-auto">
             <NotificationList items={items} />
