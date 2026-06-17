@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { ArrowRightLeft, Check, Coins, HandCoins, Mail } from "lucide-react";
+import { ArrowRightLeft, Check, Coins, HandCoins, Mail, Trash2 } from "lucide-react";
 import Button from "./ui/Button";
 import { useToast } from "../providers/ToastProvider";
 import {
   acceptDebt,
   acceptInvitation,
   acceptTransfer,
+  confirmDeleteDebt,
   confirmPartialPayment,
   confirmSettlement,
   declineInvitation,
   rejectDebt,
+  rejectDeleteDebt,
   rejectPartialPayment,
   rejectSettlement,
   rejectTransfer,
@@ -25,6 +27,7 @@ const icons = {
   settlement_request: Check,
   payment_request: Coins,
   transfer_request: ArrowRightLeft,
+  delete_request: Trash2,
 } as const;
 
 export default function NotificationList({
@@ -97,6 +100,18 @@ export default function NotificationList({
           </Button>
           <Button size="sm" disabled={disabled} onClick={() => run(key, () => confirmPartialPayment(n.id), "Abono confirmado")}>
             Confirmar
+          </Button>
+        </>
+      );
+    }
+    if (n.kind === "delete_request") {
+      return (
+        <>
+          <Button size="sm" variant="subtle" disabled={disabled} onClick={() => run(key, () => rejectDeleteDebt(n.id), "Eliminación rechazada")}>
+            Conservar
+          </Button>
+          <Button size="sm" variant="danger" disabled={disabled} onClick={() => run(key, () => confirmDeleteDebt(n.id), "Deuda eliminada")}>
+            Eliminar
           </Button>
         </>
       );

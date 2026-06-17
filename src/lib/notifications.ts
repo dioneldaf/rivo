@@ -17,6 +17,8 @@ export function notificationText(n: Notification): string {
     return `${n.from} marcó como pagada ${formatCurrency(n.amount, n.currency)} en "${n.groupName}"`;
   if (n.kind === "payment_request")
     return `${n.from} abonó ${formatCurrency(n.amount, n.currency)} en "${n.groupName}"`;
+  if (n.kind === "delete_request")
+    return `${n.from} quiere eliminar la deuda de ${formatCurrency(n.amount, n.currency)} en "${n.groupName}"`;
   return `Transferencia: ${n.from} pasaría a deberte ${formatCurrency(n.amount, n.currency)} en "${n.groupName}"`;
 }
 
@@ -32,5 +34,7 @@ export function notificationTitle(n: Notification): string {
       return "Abono por confirmar";
     case "transfer_request":
       return "Transferencia por aceptar";
+    case "delete_request":
+      return "Eliminación por confirmar";
   }
 }

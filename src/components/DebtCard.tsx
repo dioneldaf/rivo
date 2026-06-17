@@ -1,4 +1,5 @@
-import { ArrowRight, Check, Clock } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Bell, Check, ChevronDown, Clock, Trash2 } from "lucide-react";
 import Avatar from "./ui/Avatar";
 import Button from "./ui/Button";
 import StatusBadge from "./StatusBadge";
@@ -16,6 +17,10 @@ export type DebtActions = {
   onRejectSettle: (id: string) => void;
   onAcceptTransfer: (id: string) => void;
   onRejectTransfer: (id: string) => void;
+  onDelete: (id: string) => void;
+  onConfirmDelete: (id: string) => void;
+  onRejectDelete: (id: string) => void;
+  onNudge: (id: string) => void;
 };
 
 export default function DebtCard({
@@ -33,6 +38,12 @@ export default function DebtCard({
 }) {
   const isDebtor = currentUserId === debt.debtor_id;
   const isCreditor = currentUserId === debt.creditor_id;
+
+  const [showPayments, setShowPayments] = useState(false);
+  const canNudge = isCreditor && debt.status === "accepted" && debt.is_active;
+  const canDelete =
+    (debt.status === "pending" && debt.created_by === currentUserId) ||
+    (debt.is_active && debt.status === "accepted" && (isCreditor || isDebtor));
 
   const direction = isCreditor
     ? { label: "Te deben", tone: "text-emerald-600 dark:text-emerald-400" }
@@ -54,8 +65,42 @@ export default function DebtCard({
             </p>
           </div>
         </div>
-        <StatusBadge status={debt.status} />
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <StatusBadge status={debt.status} />
+          {canNudge || canDelete ? (
+            <div className="flex items-center gap-1">
+              {canNudge ? (
+                <button
+                  type="button"
+                  onClick={() => actions.onNudge(debt.id)}
+                  disabled={busy}
+                  title="Tocar el timbre al deudor"
+                  aria-label="Tocar el timbre al deudor"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-brand-50 hover:text-brand-600 disabled:opacity-50 dark:hover:bg-brand-500/15 dark:hover:text-brand-300"
+                >
+                  <Bell className="h-4 w-4" />
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="button"
+                  onClick={() => actions.onDelete(debt.id)}
+                  disabled={busy}
+                  title="Eliminar deuda"
+                  aria-label="Eliminar deuda"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-500/15 dark:hover:text-rose-400"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
+
+      {debt.description ? (
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{debt.description}</p>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <AnimatedNumber
@@ -128,13 +173,39 @@ export default function DebtCard({
               Transferencia propuesta · espera que {debt.creditor.name} la acepte
             </span>
           ) : null}
+
+          {debt.status === "delete_requested" && isCreditor ? (
+            <>
+              <Button size="sm" variant="subtle" disabled={busy} onClick={() => actions.onRejectDelete(debt.id)}>
+                Conservar
+              </Button>
+              <Button size="sm" variant="danger" disabled={busy} onClick={() => actions.onConfirmDelete(debt.id)}>
+                Eliminar
+              </Button>
+            </>
+          ) : null}
+
+          {debt.status === "delete_requested" && isDebtor ? (
+            <span className="text-xs text-slate-400">
+              Esperando que {debt.creditor.name} confirme la eliminación
+            </span>
+          ) : null}
         </div>
       </div>
 
       {payments && payments.length > 0 ? (
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Abonos</p>
-          <ul className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setShowPayments((v) => !v)}
+            aria-expanded={showPayments}
+            className="flex w-full items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
+          >
+            <span>Abonos ({payments.length})</span>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", showPayments && "rotate-180")} />
+          </button>
+          {showPayments ? (
+          <ul className="mt-2 space-y-1.5">
             {payments.map((p) => {
               const pending = p.status === "pending";
               return (
@@ -163,6 +234,7 @@ export default function DebtCard({
               );
             })}
           </ul>
+          ) : null}
         </div>
       ) : null}
     </div>

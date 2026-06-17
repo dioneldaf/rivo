@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AtSign, Check, Trash2, Upload } from "lucide-react";
+import { AtSign, Bell, Check, Plus, Trash2, Upload } from "lucide-react";
 import Card from "../components/ui/Card";
 import Input from "../components/ui/Input";
 import Button from "../components/ui/Button";
@@ -7,18 +7,22 @@ import Avatar from "../components/ui/Avatar";
 import { Reveal } from "../components/ui/motion";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../providers/ToastProvider";
-import { updateProfile, uploadAvatar, updateAvatar, USERNAME_TAKEN } from "../lib/api";
+import { updateProfile, uploadAvatar, updateAvatar, updateNudgePhrases, USERNAME_TAKEN } from "../lib/api";
 
 const USERNAME_RE = /^[a-z0-9_]{3,24}$/;
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024; // 3 MB
+const MAX_PHRASES = 5;
+const PHRASE_MAX = 80;
 
 export default function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth();
   const [name, setName] = useState(profile?.name || "");
   const [username, setUsername] = useState(profile?.username || "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url ?? null);
+  const [phrases, setPhrases] = useState<string[]>(profile?.nudge_phrases ?? []);
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [phrasesBusy, setPhrasesBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
@@ -31,7 +35,25 @@ export default function ProfilePage() {
     setName(profile.name);
     setUsername(profile.username);
     setAvatarUrl(profile.avatar_url ?? null);
+    setPhrases(profile.nudge_phrases ?? []);
   }, [profile]);
+
+  const cleanPhrases = phrases.map((p) => p.trim()).filter(Boolean);
+  const phrasesDirty =
+    JSON.stringify(cleanPhrases) !== JSON.stringify(profile?.nudge_phrases ?? []);
+
+  const savePhrases = async () => {
+    setPhrasesBusy(true);
+    try {
+      await updateNudgePhrases(phrases);
+      await refreshProfile();
+      toast.success("Frases guardadas.");
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setPhrasesBusy(false);
+    }
+  };
 
   const cleanName = name.trim();
   const cleanUsername = username.trim().toLowerCase();
@@ -165,6 +187,58 @@ export default function ProfilePage() {
         <div className="mt-6 flex justify-end">
           <Button loading={saving} disabled={!canSave} onClick={handleSave}>
             <Check className="h-4 w-4" /> Guardar cambios
+          </Button>
+        </div>
+      </Card>
+
+      {/* Reminder phrases for the "timbre" (nudge) button */}
+      <Card className="mt-6">
+        <div className="flex items-center gap-2">
+          <Bell className="h-5 w-5 text-brand-500" />
+          <h2 className="text-base font-semibold">Frases del timbre</h2>
+        </div>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Cuando toques el timbre 🔔 en una deuda donde eres acreedor, se enviará una de estas frases al deudor.
+          Define hasta {MAX_PHRASES} (máx. {PHRASE_MAX} caracteres). Si no defines ninguna, se envía un recordatorio por defecto.
+        </p>
+
+        <div className="mt-4 space-y-2">
+          {phrases.map((phrase, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={phrase}
+                maxLength={PHRASE_MAX}
+                placeholder="Ej. ¿Te acuerdas de la deuda? 🙂"
+                onChange={(e) =>
+                  setPhrases((prev) => prev.map((p, idx) => (idx === i ? e.target.value.slice(0, PHRASE_MAX) : p)))
+                }
+              />
+              <button
+                type="button"
+                aria-label="Quitar frase"
+                onClick={() => setPhrases((prev) => prev.filter((_, idx) => idx !== i))}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/15 dark:hover:text-rose-400"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          {phrases.length === 0 ? (
+            <p className="text-xs text-slate-400">Aún no tienes frases. Se enviará un recordatorio por defecto.</p>
+          ) : null}
+        </div>
+
+        <div className="mt-3 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={phrases.length >= MAX_PHRASES}
+            onClick={() => setPhrases((prev) => [...prev, ""])}
+          >
+            <Plus className="h-4 w-4" /> Añadir frase
+          </Button>
+          <Button size="sm" loading={phrasesBusy} disabled={!phrasesDirty} onClick={savePhrases}>
+            <Check className="h-4 w-4" /> Guardar frases
           </Button>
         </div>
       </Card>

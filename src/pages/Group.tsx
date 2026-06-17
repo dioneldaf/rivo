@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   Bell,
+  Combine,
   Crown,
   LogOut,
   Plus,
@@ -28,18 +29,24 @@ import CreateDebtModal from "../components/CreateDebtModal";
 import TransferDebtModal from "../components/TransferDebtModal";
 import PartialPaymentModal from "../components/PartialPaymentModal";
 import InviteModal from "../components/InviteModal";
+import Modal from "../components/ui/Modal";
 import { AVAILABLE_CURRENCIES, currencyLabel } from "../lib/currencies";
 import {
   acceptDebt,
   acceptTransfer,
+  confirmDeleteDebt,
   confirmSettlement,
+  deleteDebt,
   deleteGroup,
   getGroup,
   leaveGroup,
   listDebtPayments,
   listDebts,
   listMembers,
+  mergeDebts,
+  nudgeDebtor,
   rejectDebt,
+  rejectDeleteDebt,
   rejectSettlement,
   rejectTransfer,
   removeMember,
@@ -49,6 +56,7 @@ import {
   settleDebt,
 } from "../lib/api";
 import { emitDataChanged, onDataChanged } from "../lib/events";
+import { formatCurrency } from "../lib/format";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../providers/ToastProvider";
 import { useConfirm } from "../providers/ConfirmProvider";
@@ -63,7 +71,7 @@ import type { DebtPayment, DebtWithUsers, Group, Member } from "../lib/types";
 
 export default function GroupPage() {
   const { groupId } = useParams();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const celebrate = useCelebrate();
@@ -81,6 +89,8 @@ export default function GroupPage() {
   const [payDebtId, setPayDebtId] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [busyDebt, setBusyDebt] = useState<string | null>(null);
+  const [nudgeDebtId, setNudgeDebtId] = useState<string | null>(null);
+  const [busyMerge, setBusyMerge] = useState(false);
 
   const [nameDraft, setNameDraft] = useState("");
   const [currencyDraft, setCurrencyDraft] = useState<string[]>([]);
@@ -141,6 +151,27 @@ export default function GroupPage() {
     [allNotifications, groupId]
   );
 
+  // The "timbre" reminder phrases the creditor defined in their profile.
+  const DEFAULT_NUDGE = "Oye, ¿te acuerdas de la deuda? 🙂";
+  const nudgePhrases = useMemo(() => (profile?.nudge_phrases ?? []).filter(Boolean), [profile?.nudge_phrases]);
+
+  // Sets of 2+ accepted, active debts with the same parties + currency (and no
+  // pending payment) that the current user is part of -> can be merged into one.
+  const mergeable = useMemo(() => {
+    const map = new Map<string, DebtWithUsers[]>();
+    for (const d of debts) {
+      if (d.status !== "accepted" || !d.is_active) continue;
+      if (d.creditor_id !== user?.id && d.debtor_id !== user?.id) continue;
+      const key = `${d.creditor_id}|${d.debtor_id}|${d.currency}`;
+      const arr = map.get(key) ?? [];
+      arr.push(d);
+      map.set(key, arr);
+    }
+    return [...map.values()].filter(
+      (set) => set.length >= 2 && set.every((d) => !payments[d.id]?.some((p) => p.status === "pending"))
+    );
+  }, [debts, payments, user?.id]);
+
   /* ----- debt actions ----- */
   const debtAct = async (id: string, fn: () => Promise<void>, ok: string, celebrateOnDone = false) => {
     setBusyDebt(id);
@@ -153,6 +184,42 @@ export default function GroupPage() {
       toast.error((err as Error).message);
     } finally {
       setBusyDebt(null);
+    }
+  };
+
+  const sendNudge = async (debtId: string, message: string) => {
+    setNudgeDebtId(null);
+    try {
+      await nudgeDebtor(debtId, message);
+      toast.success("Toque enviado 🔔");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
+  const handleNudge = (debtId: string) => {
+    // 0 phrases -> a default; exactly 1 -> send it; 2+ -> let the user pick.
+    if (nudgePhrases.length > 1) setNudgeDebtId(debtId);
+    else sendNudge(debtId, nudgePhrases[0] ?? DEFAULT_NUDGE);
+  };
+
+  const handleMerge = async (set: DebtWithUsers[]) => {
+    const total = set.reduce((s, d) => s + d.amount, 0);
+    const ok = await confirm({
+      title: "Fusionar deudas",
+      description: `Se combinarán ${set.length} deudas en una sola de ${formatCurrency(total, set[0].currency)}. La otra persona será notificada.`,
+      confirmLabel: "Fusionar",
+    });
+    if (!ok) return;
+    setBusyMerge(true);
+    try {
+      await mergeDebts(set.map((d) => d.id));
+      toast.success("Deudas fusionadas");
+      emitDataChanged();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusyMerge(false);
     }
   };
 
@@ -187,6 +254,34 @@ export default function GroupPage() {
         debtAct(id, () => rejectTransfer(id), "Transferencia rechazada");
       }
     },
+    onDelete: async (id) => {
+      const debt = debts.find((x) => x.id === id);
+      if (!debt) return;
+      const iAmCreditor = debt.creditor_id === user?.id;
+      const isPending = debt.status === "pending";
+      const description = isPending
+        ? "Se cancelará esta deuda pendiente."
+        : iAmCreditor
+          ? "La deuda se eliminará por completo (la perdonas). Esta acción no se puede deshacer."
+          : "El acreedor deberá confirmar la eliminación antes de que desaparezca.";
+      if (
+        await confirm({
+          title: "Eliminar deuda",
+          description,
+          danger: true,
+          confirmLabel: iAmCreditor || isPending ? "Eliminar" : "Solicitar eliminación",
+        })
+      ) {
+        debtAct(id, () => deleteDebt(id), iAmCreditor || isPending ? "Deuda eliminada" : "Solicitud enviada");
+      }
+    },
+    onConfirmDelete: async (id) => {
+      if (await confirm({ title: "Eliminar deuda", description: "Se eliminará por completo. Esta acción no se puede deshacer.", danger: true, confirmLabel: "Eliminar" })) {
+        debtAct(id, () => confirmDeleteDebt(id), "Deuda eliminada");
+      }
+    },
+    onRejectDelete: (id) => debtAct(id, () => rejectDeleteDebt(id), "Eliminación rechazada"),
+    onNudge: (id) => handleNudge(id),
   };
 
   /* ----- admin / member actions ----- */
@@ -320,6 +415,37 @@ export default function GroupPage() {
                 <p className="text-sm font-semibold">Acciones requeridas en este grupo</p>
               </div>
               <NotificationList items={groupNotifications} />
+            </div>
+          ) : null}
+          {mergeable.length > 0 ? (
+            <div className="mb-5 rounded-3xl border border-brand-200/70 bg-brand-50/60 p-4 dark:border-brand-500/20 dark:bg-brand-500/[0.06]">
+              <div className="mb-2 flex items-center gap-2 px-1">
+                <Combine className="h-4 w-4 text-brand-600 dark:text-brand-300" />
+                <p className="text-sm font-semibold">Puedes simplificar deudas</p>
+              </div>
+              <div className="space-y-2">
+                {mergeable.map((set) => {
+                  const iAmCreditor = set[0].creditor_id === user?.id;
+                  const other = iAmCreditor ? set[0].debtor : set[0].creditor;
+                  const total = set.reduce((s, d) => s + d.amount, 0);
+                  return (
+                    <div
+                      key={set.map((d) => d.id).join("-")}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/70 px-3 py-2 dark:bg-slate-900/50"
+                    >
+                      <p className="min-w-0 text-sm">
+                        <span className="font-medium">{set.length} deudas</span>{" "}
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {iAmCreditor ? `de ${other.name}` : `con ${other.name}`} · {formatCurrency(total, set[0].currency)}
+                        </span>
+                      </p>
+                      <Button size="sm" variant="secondary" disabled={busyMerge} onClick={() => handleMerge(set)}>
+                        <Combine className="h-4 w-4" /> Fusionar
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
           {group.currencies.length === 0 ? (
@@ -540,6 +666,26 @@ export default function GroupPage() {
         onDone={emitDataChanged}
       />
       <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} groupId={group.id} onDone={emitDataChanged} />
+
+      <Modal
+        open={!!nudgeDebtId}
+        onClose={() => setNudgeDebtId(null)}
+        title="¿Qué recordatorio envías?"
+        description="Se enviará como notificación al deudor."
+        size="sm"
+      >
+        <div className="space-y-2">
+          {nudgePhrases.map((phrase, i) => (
+            <button
+              key={i}
+              onClick={() => nudgeDebtId && sendNudge(nudgeDebtId, phrase)}
+              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-left text-sm transition hover:border-brand-400 hover:bg-brand-50 dark:border-slate-700 dark:hover:border-brand-500 dark:hover:bg-brand-500/10"
+            >
+              {phrase}
+            </button>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }

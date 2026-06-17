@@ -75,6 +75,18 @@ export async function updateAvatar(url: string | null): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// Save the creditor's reminder phrases (the "timbre" presets). Up to 5, each
+// trimmed and capped at 80 chars; empties are dropped.
+export async function updateNudgePhrases(phrases: string[]): Promise<void> {
+  const uid = await requireUserId();
+  const clean = phrases
+    .map((p) => p.trim().slice(0, 80))
+    .filter(Boolean)
+    .slice(0, 5);
+  const { error } = await supabase.from("profiles").update({ nudge_phrases: clean }).eq("id", uid);
+  if (error) throw new Error(error.message);
+}
+
 /* ----------------------------------- Groups ---------------------------------- */
 
 export async function listGroups(): Promise<GroupSummary[]> {
@@ -245,6 +257,7 @@ export type CreateDebtInput = {
   amount: number; // in cents
   currency: string;
   iAmDebtor: boolean; // true: "I owe them" (auto-accepted); false: "they owe me" (needs acceptance)
+  description?: string;
 };
 
 // The creator is always one of the two parties. If they are the debtor, the debt
@@ -256,7 +269,32 @@ export async function createDebt(input: CreateDebtInput): Promise<void> {
     p_amount: Math.round(input.amount),
     p_currency: input.currency.toUpperCase(),
     p_i_am_debtor: input.iAmDebtor,
+    p_description: input.description?.trim() || null,
   });
+}
+
+// Delete a debt. The RPC enforces the rules: creditor deletes directly, debtor
+// requests deletion (creditor confirms), pending debts are canceled by creator.
+export async function deleteDebt(debtId: string): Promise<void> {
+  await rpcVoid("delete_debt", { p_debt_id: debtId });
+}
+
+export async function confirmDeleteDebt(debtId: string): Promise<void> {
+  await rpcVoid("confirm_delete_debt", { p_debt_id: debtId });
+}
+
+export async function rejectDeleteDebt(debtId: string): Promise<void> {
+  await rpcVoid("reject_delete_debt", { p_debt_id: debtId });
+}
+
+// Creditor-only "nudge": pushes a reminder (the chosen phrase) to the debtor.
+export async function nudgeDebtor(debtId: string, message: string): Promise<void> {
+  await rpcVoid("nudge_debtor", { p_debt_id: debtId, p_message: message });
+}
+
+// Merge 2+ same-party, same-currency accepted debts into one (either party may).
+export async function mergeDebts(debtIds: string[]): Promise<void> {
+  await rpcVoid("merge_debts", { p_debt_ids: debtIds });
 }
 
 export async function acceptDebt(debtId: string): Promise<void> {
@@ -339,7 +377,7 @@ export async function rejectTransfer(debtId: string): Promise<void> {
 // Actionable pending items across all the user's groups.
 export async function listNotifications(): Promise<Notification[]> {
   const uid = await requireUserId();
-  const [invites, inbound, settle, transfers, payments] = await Promise.all([
+  const [invites, inbound, settle, transfers, payments, deletes] = await Promise.all([
     listInvitations(),
     supabase
       .from("debts")
@@ -365,6 +403,13 @@ export async function listNotifications(): Promise<Notification[]> {
       .select("id,amount,created_at, debt:debt_id!inner(group_id, currency, creditor_id, group:group_id(name), debtor:debtor_id(name))")
       .eq("status", "pending")
       .eq("debt.creditor_id", uid)
+      .order("created_at", { ascending: false }),
+    // Deletions the debtor requested, awaiting my (creditor's) confirmation.
+    supabase
+      .from("debts")
+      .select("id,group_id,amount,currency,created_at, group:group_id(name), debtor:debtor_id(name)")
+      .eq("creditor_id", uid)
+      .eq("status", "delete_requested")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -437,6 +482,20 @@ export async function listNotifications(): Promise<Notification[]> {
       from: (one(debt?.debtor) as { name?: string } | null)?.name ?? "Alguien",
       amount: r.amount as number,
       currency: debt?.currency ?? "",
+    });
+  }
+
+  for (const row of deletes.data ?? []) {
+    const r = row as Record<string, unknown>;
+    out.push({
+      kind: "delete_request",
+      id: r.id as string,
+      created_at: r.created_at as string,
+      groupId: r.group_id as string,
+      groupName: (one(r.group as any) as { name?: string } | null)?.name ?? "Grupo",
+      from: (one(r.debtor as any) as { name?: string } | null)?.name ?? "Alguien",
+      amount: r.amount as number,
+      currency: r.currency as string,
     });
   }
 

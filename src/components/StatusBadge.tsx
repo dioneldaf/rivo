@@ -8,6 +8,8 @@ const map: Record<DebtStatus, { label: string; tone: Tone; pulse?: boolean }> = 
   settled: { label: "Pagada", tone: "emerald" },
   settle_requested: { label: "Pago por confirmar", tone: "brand", pulse: true },
   transfer_pending: { label: "Transferencia por aceptar", tone: "brand", pulse: true },
+  delete_requested: { label: "Eliminación por confirmar", tone: "rose", pulse: true },
+  merged: { label: "Fusionada", tone: "neutral" },
 };
 
 export default function StatusBadge({ status }: { status: DebtStatus }) {

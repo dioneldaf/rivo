@@ -10,6 +10,8 @@ const dotClass: Record<DebtStatus, string> = {
   rejected: "bg-rose-400",
   settle_requested: "bg-brand-500 animate-pulse-dot",
   transfer_pending: "bg-brand-500 animate-pulse-dot",
+  delete_requested: "bg-rose-500 animate-pulse-dot",
+  merged: "bg-slate-300 dark:bg-slate-600",
 };
 
 // Debts rendered as a connected ledger: a vertical rail with status nodes.

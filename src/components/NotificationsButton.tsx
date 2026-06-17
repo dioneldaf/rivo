@@ -45,7 +45,7 @@ export default function NotificationsButton() {
       </IconButton>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] origin-top-right animate-scale-in rounded-3xl border border-slate-200/80 bg-white p-2 shadow-soft dark:border-slate-800 dark:bg-slate-900">
+        <div className="fixed inset-x-3 top-[4.5rem] z-50 origin-top animate-scale-in rounded-3xl border border-slate-200/80 bg-white p-2 shadow-soft dark:border-slate-800 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[22rem] sm:max-w-[calc(100vw-2rem)] sm:origin-top-right">
           <div className="flex items-center justify-between px-3 py-2">
             <p className="text-sm font-semibold">Notificaciones</p>
             <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">

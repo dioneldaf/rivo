@@ -30,6 +30,7 @@ export default function CreateDebtModal({
   const [counterpartyId, setCounterpartyId] = useState("");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(currencies[0] ?? "");
+  const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
 
   const others = useMemo(() => members.filter((m) => m.id !== currentUserId), [members, currentUserId]);
@@ -40,6 +41,7 @@ export default function CreateDebtModal({
     setCounterpartyId("");
     setAmount("");
     setCurrency(currencies[0] ?? "");
+    setDescription("");
   };
 
   const submit = async () => {
@@ -48,7 +50,7 @@ export default function CreateDebtModal({
     if (!counterpartyId || !cur || !Number.isFinite(value) || value <= 0) return;
     setSaving(true);
     try {
-      await createDebt({ groupId, counterpartyId, amount: Math.round(value * 100), currency: cur, iAmDebtor });
+      await createDebt({ groupId, counterpartyId, amount: Math.round(value * 100), currency: cur, iAmDebtor, description });
       toast.success(iAmDebtor ? "Deuda registrada." : "Deuda creada. La otra persona debe aceptarla.");
       reset();
       onClose();
@@ -144,6 +146,20 @@ export default function CreateDebtModal({
             ))}
           </Select>
         </div>
+      </div>
+
+      <div>
+        <label className="field-label">
+          Descripción <span className="font-normal text-slate-400">(opcional)</span>
+        </label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value.slice(0, 140))}
+          placeholder="¿De qué es esta deuda? Ej. cena, taxi, entradas…"
+          maxLength={140}
+          disabled={noCurrencies}
+        />
+        <p className="mt-1 text-right text-xs text-slate-400">{description.length}/140</p>
       </div>
     </Modal>
   );

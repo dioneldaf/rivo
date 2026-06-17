@@ -36,11 +36,11 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data } = await supabase
       .from("profiles")
-      .select("id,name,username,avatar_url,onboarded,created_at")
+      .select("id,name,username,avatar_url,onboarded,nudge_phrases,created_at")
       .eq("id", targetId)
       .maybeSingle();
 
-    setProfile(data || null);
+    setProfile(data ? { ...data, nudge_phrases: data.nudge_phrases ?? [] } : null);
   }, [user?.id]);
 
   useEffect(() => {

@@ -7,7 +7,9 @@ export type DebtStatus =
   | "rejected"
   | "settled"
   | "settle_requested"
-  | "transfer_pending";
+  | "transfer_pending"
+  | "delete_requested"
+  | "merged";
 
 export type InvitationStatus = "pending" | "accepted" | "declined" | "canceled";
 
@@ -21,6 +23,7 @@ export type Profile = {
   username: string;
   avatar_url: string | null;
   onboarded: boolean;
+  nudge_phrases: string[];
   created_at: string;
 };
 
@@ -51,6 +54,7 @@ export type Debt = {
   amount: number; // stored in cents (integer)
   currency: CurrencyCode;
   status: DebtStatus;
+  description: string | null;
   created_by: string;
   is_active: boolean;
   parent_debt_id?: string | null;
@@ -131,6 +135,16 @@ export type Notification =
       groupId: string;
       groupName: string;
       from: string; // debtor name (who reported the payment)
+      amount: number;
+      currency: string;
+    }
+  | {
+      kind: "delete_request";
+      id: string; // debts.id
+      created_at: string;
+      groupId: string;
+      groupName: string;
+      from: string; // debtor name (who requested the deletion)
       amount: number;
       currency: string;
     };
