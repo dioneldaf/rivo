@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Bell, Check, ChevronDown, Clock, Trash2 } from "lucide-react";
 import Avatar from "./ui/Avatar";
 import Button from "./ui/Button";
@@ -204,8 +205,17 @@ export default function DebtCard({
             <span>Abonos ({payments.length})</span>
             <ChevronDown className={cn("h-4 w-4 transition-transform", showPayments && "rotate-180")} />
           </button>
-          {showPayments ? (
-          <ul className="mt-2 space-y-1.5">
+          <AnimatePresence initial={false}>
+            {showPayments ? (
+              <motion.div
+                key="abonos"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1], opacity: { duration: 0.18 } }}
+                className="overflow-hidden"
+              >
+                <ul className="mt-2 space-y-1.5">
             {payments.map((p) => {
               const pending = p.status === "pending";
               return (
@@ -233,8 +243,10 @@ export default function DebtCard({
                 </li>
               );
             })}
-          </ul>
-          ) : null}
+                </ul>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       ) : null}
     </div>
