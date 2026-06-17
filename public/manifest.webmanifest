@@ -1,0 +1,18 @@
+{
+  "name": "Rivo",
+  "short_name": "Rivo",
+  "description": "Deudas claras entre amigos, sin malentendidos.",
+  "start_url": "/rivo/",
+  "scope": "/rivo/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070b16",
+  "theme_color": "#0052FF",
+  "lang": "es",
+  "categories": ["finance", "productivity", "social"],
+  "icons": [
+    { "src": "/rivo/brand/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/rivo/brand/app-icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" },
+    { "src": "/rivo/brand/app-icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "maskable" }
+  ]
+}

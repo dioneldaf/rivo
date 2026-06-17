@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rivo</title>
+    <!-- GitHub Pages serves this for unknown paths under /rivo/. The app uses
+         HashRouter, so just bounce any stray URL back to the app root, keeping
+         the hash route if there is one. -->
+    <script>
+      location.replace("/rivo/" + location.hash);
+    </script>
+  </head>
+  <body></body>
+</html>
