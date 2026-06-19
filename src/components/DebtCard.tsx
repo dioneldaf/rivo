@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRight, Bell, Check, ChevronDown, Clock, Trash2 } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Bell, Check, ChevronDown, Clock, Combine, Trash2 } from "lucide-react";
 import Avatar from "./ui/Avatar";
 import Button from "./ui/Button";
 import StatusBadge from "./StatusBadge";
@@ -27,20 +27,25 @@ export type DebtActions = {
 export default function DebtCard({
   debt,
   payments,
+  mergeChildren,
   currentUserId,
   actions,
   busy,
+  dimmed,
 }: {
   debt: DebtWithUsers;
   payments?: DebtPayment[];
+  mergeChildren?: DebtWithUsers[];
   currentUserId?: string;
   actions: DebtActions;
   busy?: boolean;
+  dimmed?: boolean;
 }) {
   const isDebtor = currentUserId === debt.debtor_id;
   const isCreditor = currentUserId === debt.creditor_id;
 
   const [showPayments, setShowPayments] = useState(false);
+  const [showMerges, setShowMerges] = useState(false);
   const canNudge = isCreditor && debt.status === "accepted" && debt.is_active;
   const canDelete =
     (debt.status === "pending" && debt.created_by === currentUserId) ||
@@ -53,7 +58,12 @@ export default function DebtCard({
       : { label: "Deuda", tone: "text-slate-500 dark:text-slate-400" };
 
   return (
-    <div className="card p-5 transition duration-200 hover:-translate-y-0.5">
+    <div
+      className={cn(
+        "card p-5 transition duration-200",
+        dimmed ? "opacity-60 saturate-[0.6]" : "hover:-translate-y-0.5"
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <Avatar id={debt.debtor.id} name={debt.debtor.name} src={debt.debtor.avatar_url} size="sm" />
@@ -243,6 +253,65 @@ export default function DebtCard({
                 </li>
               );
             })}
+                </ul>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </div>
+      ) : null}
+
+      {mergeChildren && mergeChildren.length > 0 ? (
+        <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setShowMerges((v) => !v)}
+            aria-expanded={showMerges}
+            className="flex w-full items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
+          >
+            <span className="flex items-center gap-1.5">
+              <Combine className="h-3.5 w-3.5" /> Fusiones ({mergeChildren.length})
+            </span>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", showMerges && "rotate-180")} />
+          </button>
+          <AnimatePresence initial={false}>
+            {showMerges ? (
+              <motion.div
+                key="merges"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1], opacity: { duration: 0.18 } }}
+                className="overflow-hidden"
+              >
+                <ul className="mt-2 space-y-1.5">
+                  {mergeChildren.map((c) => {
+                    // Same direction as the surviving debt -> it increased the
+                    // net; opposite direction -> it decreased it.
+                    const increased = c.debtor_id === debt.debtor_id;
+                    return (
+                      <li key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="flex min-w-0 items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                          {increased ? (
+                            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                          ) : (
+                            <ArrowDownRight className="h-3.5 w-3.5 shrink-0 text-rose-500" />
+                          )}
+                          <span className="truncate">{c.description || "Deuda"}</span>
+                        </span>
+                        <span
+                          className={cn(
+                            "tabular shrink-0 font-medium",
+                            increased
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400"
+                          )}
+                        >
+                          {increased ? "+" : "−"}
+                          {formatCurrency(c.amount, debt.currency)}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </motion.div>
             ) : null}

@@ -292,7 +292,8 @@ export async function nudgeDebtor(debtId: string, message: string): Promise<void
   await rpcVoid("nudge_debtor", { p_debt_id: debtId, p_message: message });
 }
 
-// Merge 2+ same-party, same-currency accepted debts into one (either party may).
+// Net a complete set of accepted debts between the same pair + currency into a
+// single debt (any direction). Returns nothing; either involved party may call.
 export async function mergeDebts(debtIds: string[]): Promise<void> {
   await rpcVoid("merge_debts", { p_debt_ids: debtIds });
 }

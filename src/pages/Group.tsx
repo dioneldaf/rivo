@@ -67,7 +67,21 @@ import DebtLedger from "../components/DebtLedger";
 import NotificationList from "../components/NotificationList";
 import { useNotifications } from "../providers/NotificationsProvider";
 import { useCelebrate } from "../providers/CelebrateProvider";
-import type { DebtPayment, DebtWithUsers, Group, Member } from "../lib/types";
+import type { DebtPayment, DebtWithUsers, Group, Member, PersonRef } from "../lib/types";
+
+// A complete set of accepted, active debts between the current user and one
+// other person, in a single currency — nettable into one debt regardless of
+// direction. `net` is from the current user's perspective:
+//   net > 0  -> I end up owing `other`
+//   net < 0  -> `other` ends up owing me
+//   net = 0  -> everything cancels out (no debt survives)
+type MergeGroup = {
+  id: string;
+  debts: DebtWithUsers[];
+  currency: string;
+  other: PersonRef;
+  net: number;
+};
 
 export default function GroupPage() {
   const { groupId } = useParams();
@@ -90,6 +104,7 @@ export default function GroupPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [busyDebt, setBusyDebt] = useState<string | null>(null);
   const [nudgeDebtId, setNudgeDebtId] = useState<string | null>(null);
+  const [mergePreview, setMergePreview] = useState<MergeGroup | null>(null);
   const [busyMerge, setBusyMerge] = useState(false);
 
   const [nameDraft, setNameDraft] = useState("");
@@ -155,21 +170,33 @@ export default function GroupPage() {
   const DEFAULT_NUDGE = "Oye, ¿te acuerdas de la deuda? 🙂";
   const nudgePhrases = useMemo(() => (profile?.nudge_phrases ?? []).filter(Boolean), [profile?.nudge_phrases]);
 
-  // Sets of 2+ accepted, active debts with the same parties + currency (and no
-  // pending payment) that the current user is part of -> can be merged into one.
-  const mergeable = useMemo(() => {
+  // Complete sets of 2+ accepted, active debts between me and ONE other person in
+  // a single currency (no pending payments), REGARDLESS of direction. Each set
+  // can be netted into a single debt.
+  const mergeable = useMemo<MergeGroup[]>(() => {
+    if (!user?.id) return [];
     const map = new Map<string, DebtWithUsers[]>();
     for (const d of debts) {
       if (d.status !== "accepted" || !d.is_active) continue;
-      if (d.creditor_id !== user?.id && d.debtor_id !== user?.id) continue;
-      const key = `${d.creditor_id}|${d.debtor_id}|${d.currency}`;
+      if (d.creditor_id !== user.id && d.debtor_id !== user.id) continue;
+      const otherId = d.creditor_id === user.id ? d.debtor_id : d.creditor_id;
+      const key = `${otherId}|${d.currency}`;
       const arr = map.get(key) ?? [];
       arr.push(d);
       map.set(key, arr);
     }
-    return [...map.values()].filter(
-      (set) => set.length >= 2 && set.every((d) => !payments[d.id]?.some((p) => p.status === "pending"))
-    );
+    const out: MergeGroup[] = [];
+    for (const [key, set] of map) {
+      if (set.length < 2) continue;
+      if (set.some((d) => payments[d.id]?.some((p) => p.status === "pending"))) continue;
+      const first = set[0];
+      const other = first.debtor_id === user.id ? first.creditor : first.debtor;
+      // From my perspective: debts where I'm the debtor add to what I owe;
+      // debts where I'm the creditor subtract from it.
+      const net = set.reduce((s, d) => s + (d.debtor_id === user.id ? d.amount : -d.amount), 0);
+      out.push({ id: key, debts: set, currency: first.currency, other, net });
+    }
+    return out;
   }, [debts, payments, user?.id]);
 
   /* ----- debt actions ----- */
@@ -203,17 +230,11 @@ export default function GroupPage() {
     else sendNudge(debtId, nudgePhrases[0] ?? DEFAULT_NUDGE);
   };
 
-  const handleMerge = async (set: DebtWithUsers[]) => {
-    const total = set.reduce((s, d) => s + d.amount, 0);
-    const ok = await confirm({
-      title: "Fusionar deudas",
-      description: `Se combinarán ${set.length} deudas en una sola de ${formatCurrency(total, set[0].currency)}. La otra persona será notificada.`,
-      confirmLabel: "Fusionar",
-    });
-    if (!ok) return;
+  const runMerge = async (group: MergeGroup) => {
+    setMergePreview(null);
     setBusyMerge(true);
     try {
-      await mergeDebts(set.map((d) => d.id));
+      await mergeDebts(group.debts.map((d) => d.id));
       toast.success("Deudas fusionadas");
       emitDataChanged();
     } catch (err) {
@@ -424,27 +445,28 @@ export default function GroupPage() {
                 <p className="text-sm font-semibold">Puedes simplificar deudas</p>
               </div>
               <div className="space-y-2">
-                {mergeable.map((set) => {
-                  const iAmCreditor = set[0].creditor_id === user?.id;
-                  const other = iAmCreditor ? set[0].debtor : set[0].creditor;
-                  const total = set.reduce((s, d) => s + d.amount, 0);
-                  return (
-                    <div
-                      key={set.map((d) => d.id).join("-")}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/70 px-3 py-2 dark:bg-slate-900/50"
-                    >
-                      <p className="min-w-0 text-sm">
-                        <span className="font-medium">{set.length} deudas</span>{" "}
-                        <span className="text-slate-500 dark:text-slate-400">
-                          {iAmCreditor ? `de ${other.name}` : `con ${other.name}`} · {formatCurrency(total, set[0].currency)}
-                        </span>
-                      </p>
-                      <Button size="sm" variant="secondary" disabled={busyMerge} onClick={() => handleMerge(set)}>
-                        <Combine className="h-4 w-4" /> Fusionar
-                      </Button>
-                    </div>
-                  );
-                })}
+                {mergeable.map((group) => (
+                  <div
+                    key={group.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/70 px-3 py-2 dark:bg-slate-900/50"
+                  >
+                    <p className="min-w-0 text-sm">
+                      <span className="font-medium">{group.debts.length} deudas</span>{" "}
+                      <span className="text-slate-500 dark:text-slate-400">con {group.other.name}</span>
+                      <span className="text-slate-400"> · </span>
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {group.net === 0
+                          ? "todo se salda"
+                          : group.net > 0
+                            ? `quedarías debiendo ${formatCurrency(group.net, group.currency)}`
+                            : `te quedarían a favor ${formatCurrency(-group.net, group.currency)}`}
+                      </span>
+                    </p>
+                    <Button size="sm" variant="secondary" disabled={busyMerge} onClick={() => setMergePreview(group)}>
+                      <Combine className="h-4 w-4" /> Revisar
+                    </Button>
+                  </div>
+                ))}
               </div>
             </div>
           ) : null}
@@ -685,6 +707,94 @@ export default function GroupPage() {
             </button>
           ))}
         </div>
+      </Modal>
+
+      <Modal
+        open={!!mergePreview}
+        onClose={() => setMergePreview(null)}
+        title="Revisar fusión"
+        description={
+          mergePreview
+            ? `Se combinarán ${mergePreview.debts.length} deudas con ${mergePreview.other.name} en una sola.`
+            : undefined
+        }
+        footer={
+          mergePreview ? (
+            <>
+              <Button variant="subtle" disabled={busyMerge} onClick={() => setMergePreview(null)}>
+                Cancelar
+              </Button>
+              <Button loading={busyMerge} onClick={() => runMerge(mergePreview)}>
+                <Combine className="h-4 w-4" /> Fusionar
+              </Button>
+            </>
+          ) : null
+        }
+      >
+        {mergePreview ? (
+          <div className="space-y-4">
+            <ul className="space-y-2">
+              {mergePreview.debts.map((d) => {
+                const iOwe = d.debtor_id === user?.id;
+                return (
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-2 dark:border-slate-700"
+                  >
+                    <div className="min-w-0">
+                      <p
+                        className={cn(
+                          "text-[11px] font-semibold uppercase tracking-wide",
+                          iOwe ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"
+                        )}
+                      >
+                        {iOwe ? "Debes" : "Te deben"}
+                      </p>
+                      <p className="truncate text-sm text-slate-500 dark:text-slate-400">
+                        {d.description || "Sin descripción"}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "tabular shrink-0 font-semibold",
+                        iOwe ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"
+                      )}
+                    >
+                      {formatCurrency(d.amount, mergePreview.currency)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="rounded-2xl bg-brand-50 p-4 text-center dark:bg-brand-500/10">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300">
+                Resultado
+              </p>
+              {mergePreview.net === 0 ? (
+                <p className="mt-1 text-lg font-semibold">Todo queda saldado 🎉</p>
+              ) : mergePreview.net > 0 ? (
+                <p className="mt-1 text-lg font-semibold">
+                  Debes{" "}
+                  <span className="text-rose-600 dark:text-rose-400">
+                    {formatCurrency(mergePreview.net, mergePreview.currency)}
+                  </span>{" "}
+                  a {mergePreview.other.name}
+                </p>
+              ) : (
+                <p className="mt-1 text-lg font-semibold">
+                  {mergePreview.other.name} te debe{" "}
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    {formatCurrency(-mergePreview.net, mergePreview.currency)}
+                  </span>
+                </p>
+              )}
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Se reemplazan {mergePreview.debts.length} deudas por esta. {mergePreview.other.name} será notificado.
+              </p>
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );
